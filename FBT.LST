@@ -1,0 +1,283 @@
+'
+' --- FloppyBattleCtrl ---
+' ------------------------
+' (c)goodchip2021
+'
+' ----- DVPT PARAMS ----
+glb_arc_amiga!=FALSE   ! amiga=TRUE | atari=FALSE
+glb_dev_mode!=TRUE
+'
+' ----- PRGM PARAMS ----
+'
+glb_arg_max|=3
+glb_arg_dev$=""
+glb_ser_port_amiga$="COM1:"
+glb_ser_port_atari$="AUX:"
+glb_ser_timeout|=100
+glb_ser_esc$="AT"
+glb_ser_get$="G"
+glb_ser_set$="S"
+glb_ser_try_num|=3
+glb_ser_chr_end|=13
+glb_ser_chr_lo|=31
+glb_ser_chr_hi|=128
+glb_ser_rtn_esc&=128
+glb_ser_end_esc&=13
+glb_ser_brg_off$="BOFF"
+glb_ser_brg_on$="BON"
+'
+' ---- MAIN ROUTINE ----
+'
+' ON BREAK GOSUB xxx
+' ON ERROR GOSUB xxx
+'
+' EVERY 1 GOSUB f_dev_debug
+' EVERY STOP
+'
+DIM arg$(glb_arg_max|)
+'
+DO
+  FOR arg_cur|=1 TO glb_arg_max|
+    arg$(arg_cur|)=""
+  NEXT arg_cur|
+  '
+  IF glb_dev_mode!
+    LINE INPUT ">FloppyBattleCtrl ",glb_arg_dev$
+  ENDIF
+  '
+  arg_cnt|=@f_cut_args(@f_dev_return$(glb_arg_dev$,@f_con_in$))
+  usr_method$=LEFT$(arg$(1),2)
+  usr_command$=LEFT$(arg$(2),12)
+  usr_data$=LEFT$(arg$(3),63)
+  ' PRINT arg_cnt|
+  ' PRINT usr_method$
+  ' PRINT usr_command$
+  ' PRINT usr_data$
+  '
+  ser_command$=UPPER$(usr_command$)
+  '
+  SELECT usr_method$
+  CASE "-g"
+    ser_method$="G"
+  CASE "-s"
+    ser_method$="S"
+  CASE "-w"
+    ser_method$="W"
+  DEFAULT
+    ser_method$=""
+  ENDSELECT
+  '
+  IF usr_data$<>""
+    ser_data$=":"+usr_data$
+  ELSE
+    ser_data$=""
+  ENDIF
+  '
+  IF ser_method$<>""
+    ser_to_sent$=ser_method$+ser_command$+ser_data$
+    ser_ret_raw$=@f_ser_io$(ser_to_sent$,9600)
+    ' @f_dev_out("["+ser_ret_raw$+"] : ",FALSE)
+    '
+    IF (LEFT$(ser_ret_raw$)=CHR$(glb_ser_rtn_esc&))
+      ser_rtn_cod$=MID$(ser_ret_raw$,2,3)
+      SELECT ser_rtn_cod$
+      CASE "200"
+        ' PRINT MID$(ser_ret_raw$,5,1)
+        IF (MID$(ser_ret_raw$,5,1)=CHR$(glb_ser_rtn_esc&))
+          @f_con_out(MID$(ser_ret_raw$,6),TRUE)
+        ELSE
+          @f_con_out("Success.",TRUE)
+        ENDIF
+      CASE "204"
+        @f_con_out("Unavailable.",TRUE)
+      CASE "501"
+        @f_con_out("Not implemented.",TRUE)
+      DEFAULT
+        @f_con_out("Unknow error "+ser_rtn_cod$+".",TRUE)
+      ENDSELECT
+    ELSE
+      @f_con_out("Interface not responding.",TRUE)
+    ENDIF
+  ELSE
+    IF usr_method$="-h"
+      @f_con_out("FloppyBattleCtrl v0.1a by Goodchip&Cicile (c)2021-2022.",TRUE)
+      @f_con_out("",TRUE)
+    ELSE
+      @f_con_out("Invalid arguments.",TRUE)
+    ENDIF
+  ENDIF
+  '
+  ' NEXT i
+  '
+LOOP WHILE glb_dev_mode!
+'
+END
+'
+' --- ARGUMENTS PROCESSING ----
+'
+FUNCTION f_cut_args(arg_string$)
+  FOR arg_cnt|=1 TO glb_arg_max|
+    arg_string$=TRIM$(arg_string$)
+    IF LEFT$(arg_string$,1)=CHR$(34)
+      arg_char_mark|=34
+      arg_start_mark|=2
+    ELSE
+      arg_char_mark|=32
+      arg_start_mark|=1
+    ENDIF
+    arg_end_mark|=INSTR(arg_start_mark|,arg_string$,CHR$(arg_char_mark|))
+    IF (arg_end_mark|<>0)
+      arg$(arg_cnt|)=MID$(arg_string$,arg_start_mark|,arg_end_mark|-arg_start_mark|)
+    ELSE
+      arg$(arg_cnt|)=arg_string$
+      EXIT IF TRUE
+    ENDIF
+    arg_string$=MID$(arg_string$,arg_end_mark|+1)
+  NEXT arg_cnt|
+  RETURN arg_cnt|-1
+ENDFUNC
+'
+' ----- SERIAL IO ----
+'
+FUNCTION f_ser_timeout
+  PRINT TIMER
+ENDFUNC
+'
+FUNCTION f_ser_io$(command$,speed&)
+  OPEN "O",#1,@f_ser_arc_port$+STR$(speed&)+",N,8,1"
+  @f_ser_purge
+  PRINT #1,glb_ser_esc$;glb_ser_brg_off$;CHR$(glb_ser_rtn_esc&);
+  PRINT #1,glb_ser_esc$;command$;CHR$(glb_ser_rtn_esc&);
+  serchr$=""
+  serstring$=""
+  serisvalid!=FALSE
+  ser_alive_ts%=TIMER
+  DO
+    EXIT IF TIMER-ser_alive_ts%>glb_ser_timeout|
+    IF @f_ser_buf_isfilled
+      serchr$=CHR$(INP(1))
+    ELSE
+      serchr$=""
+    ENDIF
+    IF (serchr$=CHR$(glb_ser_end_esc&))
+      serisvalid!=TRUE
+      EXIT IF TRUE
+    ENDIF
+    IF NOT (serchr$<CHR$(glb_ser_chr_lo|) OR serchr$>CHR$(glb_ser_chr_hi|))
+      serstring$=serstring$+serchr$
+      ser_alive_ts%=TIMER
+    ENDIF
+  LOOP UNTIL MOUSEK
+  PRINT #1,glb_ser_esc$;glb_ser_brg_on$
+  CLOSE #1
+  IF serisvalid!
+    RETURN TRIM$(serstring$)
+  ELSE
+    RETURN ""
+  ENDIF
+ENDFUNC
+'
+' ----- END ----
+'
+PROCEDURE f_sys_exit
+  END
+  ' SYSTEM
+RETURN
+'
+' ----- DEV  -----
+'
+FUNCTION f_dev_debug(arg)
+  ' serdatr%=DPEEK(&HDFF018)
+  ' PRINT BIN$(AND(SHR(serdatr%,12),1),8);" ";BIN$(serdatr%,16)
+  ' PRINT PEEK(&HDFF018)
+  ' PRINT #1,"ATSBTOFF"
+  ' PRINT #1,"ATGIP"
+ENDFUNC
+'
+PROCEDURE f_dev_print(out_str$,out_ln!)
+  IF glb_dev_mode!
+    IF out_ln!
+      PRINT out_str$
+    ELSE
+      PRINT out_str$;
+    ENDIF
+  ENDIF
+RETURN
+'
+FUNCTION f_dev_return$(dev_str$,pgm_str$)
+  IF glb_dev_mode!
+    RETURN dev_str$
+  ELSE
+    RETURN pgm_str$
+  ENDIF
+ENDFUNC
+'
+' ----- SPECIALS FUNCTIONS DEPENDING ARCHITECTURE -----
+'
+FUNCTION f_ser_arc_port$
+  IF glb_arc_amiga!
+    RETURN glb_ser_port_amiga$
+  ELSE
+    RETURN glb_ser_port_atari$
+  ENDIF
+ENDFUNC
+'
+FUNCTION f_ser_buf_isfilled
+  IF glb_arc_amiga!
+    RETURN NOT EOF(#1)
+  ELSE
+    RETURN INP?(1)
+  ENDIF
+ENDFUNC
+'
+PROCEDURE f_ser_purge
+  IF NOT glb_arc_amiga!
+    DO WHILE @f_ser_buf_isfilled
+      dummy|=INP(1)
+    LOOP
+  ENDIF
+RETURN
+'
+PROCEDURE f_con_out(out_str$,out_ln!)
+  IF (NOT glb_arc_amiga!) OR glb_dev_mode!
+    IF out_ln!
+      PRINT out_str$
+    ELSE
+      PRINT out_str$;
+    ENDIF
+  ELSE
+    OPEN "o",#5,"*"
+    IF out_ln!
+      PRINT #5,out_str$
+      CLOSE #5
+    ELSE
+      PRINT #5,out_str$;
+      CLOSE #5
+    ENDIF
+  ENDIF
+RETURN
+'
+FUNCTION f_con_in$
+  IF glb_arc_amiga!
+    DIM m%(16)
+    d$="dos.library"+CHR$(0)
+    d%=V:d$
+    db%=OpenLibrary(d%,36)
+    c$=""
+    IF db%<>0
+      m%(6)=db%
+      RCALL db%-534,m%()
+      c%=m%(0)
+      c$=CHAR{c%}
+      ~CloseLibrary(db%)
+    ENDIF
+    ERASE m%()
+    IF RIGHT$(c$,1)=CHR$(10)
+      c$=LEFT$(c$,LEN(c$)-1)
+    ENDIF
+    c$=TRIM$(c$)
+    RETURN c$
+  ELSE
+    RETURN LEFT$(CHAR{basepage+129},BYTE{basepage+128})
+  ENDIF
+ENDFUNC
