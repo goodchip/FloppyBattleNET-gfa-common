@@ -223,10 +223,11 @@ FUNCTION f_ser_arc_port$
 ENDFUNC
 '
 FUNCTION f_ser_buf_isfilled
+  ' "RETURN INP?(1)" is breaked in listing on amiga, when:
   IF glb_arc_amiga!
-    RETURN NOT EOF(#1)
+    RETURN NOT EOF(#1) ! remplace by end of file device on Amiga
   ELSE
-    RETURN INP?(1)
+    RETURN gemdos(18) ! remplace by GEMDOS function on Atari
   ENDIF
 ENDFUNC
 '
