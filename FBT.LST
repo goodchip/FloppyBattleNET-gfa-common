@@ -3,11 +3,14 @@
 ' ------------------------
 ' (c)goodchip2021
 '
-' ----- DVPT PARAMS ----
-glb_arc_amiga!=FALSE   ! amiga=TRUE | atari=FALSE
-glb_dev_mode!=TRUE
 '
-' ----- PRGM PARAMS ----
+' ----- DVPT FLAGS ----
+'
+glb_arc_amiga!=TRUE   ! amiga=TRUE | atari=FALSE
+glb_dev_mode!=FALSE
+'
+'
+' ----- GLOBAL VARS ----
 '
 glb_arg_max|=3
 glb_arg_dev$=""
@@ -26,6 +29,12 @@ glb_ser_end_esc&=13
 glb_ser_brg_off$="BOFF"
 glb_ser_brg_on$="BON"
 '
+IF glb_arc_amiga!
+  glb_dos_lib_ptr%=0
+  glb_dos_lib_str$="dos.library"+CHR$(0)
+ENDIF
+'
+'
 ' ---- MAIN ROUTINE ----
 '
 ' ON BREAK GOSUB xxx
@@ -37,15 +46,17 @@ glb_ser_brg_on$="BON"
 DIM arg$(glb_arg_max|)
 '
 DO
-  FOR arg_cur|=1 TO glb_arg_max|
-    arg$(arg_cur|)=""
-  NEXT arg_cur|
   '
   IF glb_dev_mode!
+    FOR arg_cur|=1 TO glb_arg_max|
+      arg$(arg_cur|)="" ! erase previous args
+    NEXT arg_cur|
     LINE INPUT ">FloppyBattleCtrl ",glb_arg_dev$
+  ELSE
+    con_in$=@f_con_in$
   ENDIF
   '
-  arg_cnt|=@f_cut_args(@f_dev_return$(glb_arg_dev$,@f_con_in$))
+  arg_cnt|=@f_cut_args(@f_dev_return$(glb_arg_dev$,con_in$))
   usr_method$=LEFT$(arg$(1),2)
   usr_command$=LEFT$(arg$(2),12)
   usr_data$=LEFT$(arg$(3),63)
@@ -84,55 +95,58 @@ DO
       CASE "200"
         ' PRINT MID$(ser_ret_raw$,5,1)
         IF (MID$(ser_ret_raw$,5,1)=CHR$(glb_ser_rtn_esc&))
-          @f_con_out(MID$(ser_ret_raw$,6),TRUE)
+          con_out$=MID$(ser_ret_raw$,6)
         ELSE
-          @f_con_out("Success.",TRUE)
+          con_out$="Success."
         ENDIF
       CASE "204"
-        @f_con_out("Unavailable.",TRUE)
+        con_out$="Unavailable."
       CASE "501"
-        @f_con_out("Not implemented.",TRUE)
+        con_out$="Not implemented."
       DEFAULT
-        @f_con_out("Unknow error "+ser_rtn_cod$+".",TRUE)
+        con_out$="Unknow error "+ser_rtn_cod$+"."
       ENDSELECT
     ELSE
-      @f_con_out("Interface not responding.",TRUE)
+      con_out$="Interface not responding."
     ENDIF
   ELSE
     IF usr_method$="-h"
-      @f_con_out("FloppyBattleCtrl v0.1a by Goodchip&Cicile (c)2021-2022.",TRUE)
-      @f_con_out("",TRUE)
+      con_out$="FloppyBattleCtrl v0.1a by Goodchip&Cicile (c)2021-2022."
     ELSE
-      @f_con_out("Invalid arguments.",TRUE)
+      con_out$="Invalid arguments."
     ENDIF
   ENDIF
   '
-  ' NEXT i
+  ' REPEAT
+  ' UNTIL MOUSEK
+  '
+  @f_con_out(con_out$,TRUE)
   '
 LOOP WHILE glb_dev_mode!
+'
 '
 END
 '
 ' --- ARGUMENTS PROCESSING ----
 '
-FUNCTION f_cut_args(arg_string$)
+FUNCTION f_cut_args(arg_str$)
   FOR arg_cnt|=1 TO glb_arg_max|
-    arg_string$=TRIM$(arg_string$)
-    IF LEFT$(arg_string$,1)=CHR$(34)
+    arg_str$=TRIM$(arg_str$)
+    IF LEFT$(arg_str$,1)=CHR$(34)
       arg_char_mark|=34
       arg_start_mark|=2
     ELSE
       arg_char_mark|=32
       arg_start_mark|=1
     ENDIF
-    arg_end_mark|=INSTR(arg_start_mark|,arg_string$,CHR$(arg_char_mark|))
-    IF (arg_end_mark|<>0)
-      arg$(arg_cnt|)=MID$(arg_string$,arg_start_mark|,arg_end_mark|-arg_start_mark|)
+    arg_end_mark|=INSTR(arg_start_mark|,arg_str$,CHR$(arg_char_mark|))
+    IF arg_end_mark|<>0
+      arg$(arg_cnt|)=MID$(arg_str$,arg_start_mark|,arg_end_mark|-arg_start_mark|)
     ELSE
-      arg$(arg_cnt|)=arg_string$
+      arg$(arg_cnt|)=arg_str$
       EXIT IF TRUE
     ENDIF
-    arg_string$=MID$(arg_string$,arg_end_mark|+1)
+    arg_str$=MID$(arg_str$,arg_end_mark|+1)
   NEXT arg_cnt|
   RETURN arg_cnt|-1
 ENDFUNC
@@ -186,13 +200,6 @@ RETURN
 '
 ' ----- DEV  -----
 '
-FUNCTION f_dev_debug(arg)
-  ' serdatr%=DPEEK(&HDFF018)
-  ' PRINT BIN$(AND(SHR(serdatr%,12),1),8);" ";BIN$(serdatr%,16)
-  ' PRINT PEEK(&HDFF018)
-  ' PRINT #1,"ATSBTOFF"
-  ' PRINT #1,"ATGIP"
-ENDFUNC
 '
 PROCEDURE f_dev_print(out_str$,out_ln!)
   IF glb_dev_mode!
@@ -230,7 +237,6 @@ FUNCTION f_ser_buf_isfilled
     RETURN gemdos(18) ! remplace by GEMDOS function on Atari
   ENDIF
 ENDFUNC
-'
 PROCEDURE f_ser_purge
   IF NOT glb_arc_amiga!
     DO WHILE @f_ser_buf_isfilled
@@ -247,37 +253,48 @@ PROCEDURE f_con_out(out_str$,out_ln!)
       PRINT out_str$;
     ENDIF
   ELSE
-    OPEN "o",#5,"*"
-    IF out_ln!
-      PRINT #5,out_str$
-      CLOSE #5
+    IF glb_dos_lib_ptr%<>0
+      '
+      IF out_ln!
+        out_str$=out_str$+CHR$(10)
+      ENDIF
+      out_str$=out_str$+CHR$(0)
+      '
+      DIM reg%(16)
+      '
+      reg%(6)=glb_dos_lib_ptr%
+      RCALL glb_dos_lib_ptr%-60,reg%()
+      '
+      reg%(1)=reg%(0)         ! D1: handle
+      reg%(2)=V:out_str$      ! D2: buffer
+      reg%(3)=LEN(out_str$)-1 ! D3: length
+      reg%(14)=glb_dos_lib_ptr%
+      RCALL glb_dos_lib_ptr%-48,reg%()
+      '
+      ERASE reg%()
+      '
+      ~CloseLibrary(glb_dos_lib_ptr%)
     ELSE
-      PRINT #5,out_str$;
-      CLOSE #5
+      PRINT "CLOSE: no doslib found!"
     ENDIF
   ENDIF
 RETURN
 '
 FUNCTION f_con_in$
   IF glb_arc_amiga!
-    DIM m%(16)
-    d$="dos.library"+CHR$(0)
-    d%=V:d$
-    db%=OpenLibrary(d%,36)
-    c$=""
-    IF db%<>0
-      m%(6)=db%
-      RCALL db%-534,m%()
-      c%=m%(0)
-      c$=CHAR{c%}
-      ~CloseLibrary(db%)
+    arg_str$=""
+    DIM reg%(16)
+    glb_dos_lib_ptr%=OpenLibrary(V:glb_dos_lib_str$,36)
+    IF glb_dos_lib_ptr%<>0
+      reg%(6)=glb_dos_lib_ptr%
+      RCALL glb_dos_lib_ptr%-534,reg%()
+      arg_str$=CHAR{reg%(0)}
     ENDIF
-    ERASE m%()
-    IF RIGHT$(c$,1)=CHR$(10)
-      c$=LEFT$(c$,LEN(c$)-1)
+    ERASE reg%()
+    IF RIGHT$(arg_str$,1)=CHR$(10)
+      arg_str$=LEFT$(arg_str$,LEN(arg_str$)-1)
     ENDIF
-    c$=TRIM$(c$)
-    RETURN c$
+    RETURN TRIM$(arg_str$)
   ELSE
     RETURN LEFT$(CHAR{basepage+129},BYTE{basepage+128})
   ENDIF
