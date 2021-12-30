@@ -6,32 +6,39 @@
 '
 ' ----- DVPT FLAGS ----
 '
-glb_arc_amiga!=TRUE   ! amiga=TRUE | atari=FALSE
-glb_dev_mode!=FALSE
+g_arc_amiga!=TRUE   ! amiga=TRUE | atari=FALSE
+g_dev_mode!=FALSE
 '
 '
 ' ----- GLOBAL VARS ----
 '
-glb_arg_max|=3
-glb_arg_dev$=""
-glb_ser_port_amiga$="COM1:"
-glb_ser_port_atari$="AUX:"
-glb_ser_timeout|=100
-glb_ser_esc$="AT"
-glb_ser_get$="G"
-glb_ser_set$="S"
-glb_ser_try_num|=3
-glb_ser_chr_end|=13
-glb_ser_chr_lo|=31
-glb_ser_chr_hi|=128
-glb_ser_rtn_esc&=128
-glb_ser_end_esc&=13
-glb_ser_brg_off$="BOFF"
-glb_ser_brg_on$="BON"
+g_prg_name$="FBT"
+g_arg_max|=3
+g_arg_dev$=""
+g_ser_port_amiga$="COM1:"
+g_ser_port_atari$="AUX:"
+g_ser_timeout|=100
+g_ser_esc$="AT"
+g_ser_try_num|=3 ! not used
+g_ser_chr_end|=13 ! not used
+g_ser_chr_lo|=31
+g_ser_chr_hi|=128
+g_ser_rtn_esc&=128
+g_ser_end_esc&=13
+g_ser_brg_off$="BOFF"
+g_ser_brg_on$="BON"
+DIM g_arg$(g_arg_max|)
 '
-IF glb_arc_amiga!
-  glb_dos_lib_ptr%=0
-  glb_dos_lib_str$="dos.library"+CHR$(0)
+IF g_arc_amiga!
+  g_dos_base_ptr%=0
+  g_dos_write_offset%=48
+  g_dos_output_offset%=60
+  g_dos_exit_offset%=144
+  g_dos_printfault_offset%=474 ! doslib v36+
+  g_dos_getargstr_offset%=534  ! doslib v36+
+  g_dos_lib_str$="dos.library"+CHR$(0)
+  g_dos_lib_ver|=36
+  DIM g_reg%(16)
 ENDIF
 '
 '
@@ -43,27 +50,23 @@ ENDIF
 ' EVERY 1 GOSUB f_dev_debug
 ' EVERY STOP
 '
-DIM arg$(glb_arg_max|)
-'
-DO
+IF @f_sys_open_libs
   '
-  IF glb_dev_mode!
-    FOR arg_cur|=1 TO glb_arg_max|
-      arg$(arg_cur|)="" ! erase previous args
-    NEXT arg_cur|
-    LINE INPUT ">FloppyBattleCtrl ",glb_arg_dev$
+  ' DO
+  '
+  IF g_dev_mode!
+    ' FOR arg_cur|=1 TO g_arg_max|
+    '   g_arg$(arg_cur|)="" ! erase previous args
+    ' NEXT arg_cur|
+    LINE INPUT ">FloppyBattleCtrl ",g_arg_dev$
   ELSE
     con_in$=@f_con_in$
   ENDIF
   '
-  arg_cnt|=@f_cut_args(@f_dev_return$(glb_arg_dev$,con_in$))
-  usr_method$=LEFT$(arg$(1),2)
-  usr_command$=LEFT$(arg$(2),12)
-  usr_data$=LEFT$(arg$(3),63)
-  ' PRINT arg_cnt|
-  ' PRINT usr_method$
-  ' PRINT usr_command$
-  ' PRINT usr_data$
+  arg_cnt|=@f_cut_args(@f_dev_return$(g_arg_dev$,con_in$))
+  usr_method$=LEFT$(g_arg$(1),2)
+  usr_command$=LEFT$(g_arg$(2),12)
+  usr_data$=LEFT$(g_arg$(3),63)
   '
   ser_command$=UPPER$(usr_command$)
   '
@@ -89,48 +92,47 @@ DO
     ser_ret_raw$=@f_ser_io$(ser_to_sent$,9600)
     ' @f_dev_out("["+ser_ret_raw$+"] : ",FALSE)
     '
-    IF (LEFT$(ser_ret_raw$)=CHR$(glb_ser_rtn_esc&))
+    IF (LEFT$(ser_ret_raw$)=CHR$(g_ser_rtn_esc&))
       ser_rtn_cod$=MID$(ser_ret_raw$,2,3)
       SELECT ser_rtn_cod$
       CASE "200"
         ' PRINT MID$(ser_ret_raw$,5,1)
-        IF (MID$(ser_ret_raw$,5,1)=CHR$(glb_ser_rtn_esc&))
-          con_out$=MID$(ser_ret_raw$,6)
+        IF (MID$(ser_ret_raw$,5,1)=CHR$(g_ser_rtn_esc&))
+        @f_con_exit(MID$(ser_ret_raw$,6),0)
         ELSE
-          con_out$="Success."
+        @f_sys_exit(0)
         ENDIF
       CASE "204"
-        con_out$="Unavailable."
+      @f_con_exit("",205)
       CASE "501"
-        con_out$="Not implemented."
+      @f_con_exit("",212)
       DEFAULT
-        con_out$="Unknow error "+ser_rtn_cod$+"."
+      @f_con_exit("err"+ser_rtn_cod$,209)
       ENDSELECT
     ELSE
-      con_out$="Interface not responding."
+    @f_con_exit("",218)
     ENDIF
   ELSE
-    IF usr_method$="-h"
-      con_out$="FloppyBattleCtrl v0.1a by Goodchip&Cicile (c)2021-2022."
+    IF usr_method$="?"
+    @f_con_out(g_prg_name$+" v0.2 by Goodchip&Cicile (c)2021-2022.",TRUE)
+    @f_con_exit("",0)
     ELSE
-      con_out$="Invalid arguments."
+    @f_con_exit("",120) ! bad command-line arguments
     ENDIF
   ENDIF
   '
-  ' REPEAT
-  ' UNTIL MOUSEK
+  ' LOOP WHILE g_dev_mode!
   '
-  @f_con_out(con_out$,TRUE)
-  '
-LOOP WHILE glb_dev_mode!
+ENDIF
 '
+' Exits program properly
+@f_sys_exit(20)
 '
-END
 '
 ' --- ARGUMENTS PROCESSING ----
 '
 FUNCTION f_cut_args(arg_str$)
-  FOR arg_cnt|=1 TO glb_arg_max|
+  FOR arg_cnt|=1 TO g_arg_max|
     arg_str$=TRIM$(arg_str$)
     IF LEFT$(arg_str$,1)=CHR$(34)
       arg_char_mark|=34
@@ -141,9 +143,9 @@ FUNCTION f_cut_args(arg_str$)
     ENDIF
     arg_end_mark|=INSTR(arg_start_mark|,arg_str$,CHR$(arg_char_mark|))
     IF arg_end_mark|<>0
-      arg$(arg_cnt|)=MID$(arg_str$,arg_start_mark|,arg_end_mark|-arg_start_mark|)
+      g_arg$(arg_cnt|)=MID$(arg_str$,arg_start_mark|,arg_end_mark|-arg_start_mark|)
     ELSE
-      arg$(arg_cnt|)=arg_str$
+      g_arg$(arg_cnt|)=arg_str$
       EXIT IF TRUE
     ENDIF
     arg_str$=MID$(arg_str$,arg_end_mark|+1)
@@ -151,38 +153,35 @@ FUNCTION f_cut_args(arg_str$)
   RETURN arg_cnt|-1
 ENDFUNC
 '
-' ----- SERIAL IO ----
 '
-FUNCTION f_ser_timeout
-  PRINT TIMER
-ENDFUNC
+' ----- SERIAL IO ----
 '
 FUNCTION f_ser_io$(command$,speed&)
   OPEN "O",#1,@f_ser_arc_port$+STR$(speed&)+",N,8,1"
-  @f_ser_purge
-  PRINT #1,glb_ser_esc$;glb_ser_brg_off$;CHR$(glb_ser_rtn_esc&);
-  PRINT #1,glb_ser_esc$;command$;CHR$(glb_ser_rtn_esc&);
+@f_ser_purge
+  PRINT #1,g_ser_esc$;g_ser_brg_off$;CHR$(g_ser_rtn_esc&);
+  PRINT #1,g_ser_esc$;command$;CHR$(g_ser_rtn_esc&);
   serchr$=""
   serstring$=""
   serisvalid!=FALSE
   ser_alive_ts%=TIMER
   DO
-    EXIT IF TIMER-ser_alive_ts%>glb_ser_timeout|
+    EXIT IF TIMER-ser_alive_ts%>g_ser_timeout|
     IF @f_ser_buf_isfilled
       serchr$=CHR$(INP(1))
     ELSE
       serchr$=""
     ENDIF
-    IF (serchr$=CHR$(glb_ser_end_esc&))
+    IF (serchr$=CHR$(g_ser_end_esc&))
       serisvalid!=TRUE
       EXIT IF TRUE
     ENDIF
-    IF NOT (serchr$<CHR$(glb_ser_chr_lo|) OR serchr$>CHR$(glb_ser_chr_hi|))
+    IF NOT (serchr$<CHR$(g_ser_chr_lo|) OR serchr$>CHR$(g_ser_chr_hi|))
       serstring$=serstring$+serchr$
       ser_alive_ts%=TIMER
     ENDIF
   LOOP UNTIL MOUSEK
-  PRINT #1,glb_ser_esc$;glb_ser_brg_on$
+  PRINT #1,g_ser_esc$;g_ser_brg_on$
   CLOSE #1
   IF serisvalid!
     RETURN TRIM$(serstring$)
@@ -191,18 +190,63 @@ FUNCTION f_ser_io$(command$,speed&)
   ENDIF
 ENDFUNC
 '
-' ----- END ----
 '
-PROCEDURE f_sys_exit
-  END
-  ' SYSTEM
+' ----- BEGIN/END ----
+'
+FUNCTION f_sys_open_libs
+  '
+  IF g_arc_amiga!
+    g_dos_base_ptr%=OpenLibrary(V:g_dos_lib_str$,g_dos_lib_ver|)
+    IF g_dos_base_ptr%=0
+    @f_con_exit("",122) ! library not found
+      RETURN FALSE
+    ENDIF
+  ENDIF
+  '
+  RETURN TRUE
+  '
+ENDFUNC
+'
+PROCEDURE f_con_exit(con_out$,con_err_cod|)
+  '
+  ERASE g_arg$()
+  '
+  IF (con_err_cod|<>0)
+    IF(con_out$="")
+    @f_con_err(g_prg_name$,con_err_cod|)
+    ELSE
+    @f_con_err(con_out$,con_err_cod|)
+    ENDIF
+  ELSE
+  @f_con_out(con_out$,TRUE)
+  ENDIF
+  '
+  f_sys_exit(con_err_cod|)
+  '
 RETURN
+'
+PROCEDURE f_sys_exit(con_err_cod|)
+  '
+  ERASE g_arg$()
+  '
+  IF g_arc_amiga! AND (g_dos_base_ptr%<>0)
+    ~CloseLibrary(g_dos_base_ptr%)
+    ERASE g_reg%()
+  ENDIF
+  '
+  IF g_dev_mode!
+    END
+  ENDIF
+  '
+  SYSTEM con_err_cod|
+  '
+RETURN
+'
 '
 ' ----- DEV  -----
 '
-'
 PROCEDURE f_dev_print(out_str$,out_ln!)
-  IF glb_dev_mode!
+  IF g_dev_mode!
     IF out_ln!
       PRINT out_str$
     ELSE
@@ -212,7 +256,7 @@ PROCEDURE f_dev_print(out_str$,out_ln!)
 RETURN
 '
 FUNCTION f_dev_return$(dev_str$,pgm_str$)
-  IF glb_dev_mode!
+  IF g_dev_mode!
     RETURN dev_str$
   ELSE
     RETURN pgm_str$
@@ -222,78 +266,100 @@ ENDFUNC
 ' ----- SPECIALS FUNCTIONS DEPENDING ARCHITECTURE -----
 '
 FUNCTION f_ser_arc_port$
-  IF glb_arc_amiga!
-    RETURN glb_ser_port_amiga$
+  IF g_arc_amiga!
+    RETURN g_ser_port_amiga$
   ELSE
-    RETURN glb_ser_port_atari$
+    RETURN g_ser_port_atari$
   ENDIF
 ENDFUNC
 '
 FUNCTION f_ser_buf_isfilled
   ' "RETURN INP?(1)" is breaked in listing on amiga, when:
-  IF glb_arc_amiga!
+  IF g_arc_amiga!
     RETURN NOT EOF(#1) ! remplace by end of file device on Amiga
   ELSE
     RETURN gemdos(18) ! remplace by GEMDOS function on Atari
   ENDIF
 ENDFUNC
+'
 PROCEDURE f_ser_purge
-  IF NOT glb_arc_amiga!
+  IF NOT g_arc_amiga!
     DO WHILE @f_ser_buf_isfilled
       dummy|=INP(1)
     LOOP
   ENDIF
 RETURN
 '
+PROCEDURE f_con_err(err_str$,err_code%)
+  IF (NOT g_arc_amiga!) OR g_dev_mode!
+    PRINT err_str$;
+  ELSE
+    IF g_dos_base_ptr%<>0
+      '
+      err_str$=err_str$+CHR$(0)
+      '
+      g_reg%(6)=g_dos_base_ptr%    ! D6: dosbase?
+      RCALL g_dos_base_ptr%-g_dos_output_offset%,g_reg%()
+      '
+      g_reg%(1)=err_code%           ! D1: code
+      g_reg%(2)=V:err_str$          ! D2: header
+      g_reg%(14)=g_dos_base_ptr%    ! A6: dosbase
+      RCALL g_dos_base_ptr%-g_dos_printfault_offset%,g_reg%()
+      '
+    ELSE
+    @f_con_exit("",122) ! library not found
+    ENDIF
+  ENDIF
+RETURN
+'
 PROCEDURE f_con_out(out_str$,out_ln!)
-  IF (NOT glb_arc_amiga!) OR glb_dev_mode!
+  IF (NOT g_arc_amiga!) OR g_dev_mode!
     IF out_ln!
       PRINT out_str$
     ELSE
       PRINT out_str$;
     ENDIF
   ELSE
-    IF glb_dos_lib_ptr%<>0
+    IF g_dos_base_ptr%<>0
       '
       IF out_ln!
         out_str$=out_str$+CHR$(10)
       ENDIF
       out_str$=out_str$+CHR$(0)
       '
-      DIM reg%(16)
+      g_reg%(6)=g_dos_base_ptr%    ! D6: dosbase?
+      RCALL g_dos_base_ptr%-g_dos_output_offset%,g_reg%()
       '
-      reg%(6)=glb_dos_lib_ptr%
-      RCALL glb_dos_lib_ptr%-60,reg%()
+      g_reg%(1)=g_reg%(0)           ! D1: handle
+      g_reg%(2)=V:out_str$          ! D2: buffer
+      g_reg%(3)=LEN(out_str$)-1     ! D3: length
+      g_reg%(14)=g_dos_base_ptr%    ! A6: dosbase
+      RCALL g_dos_base_ptr%-g_dos_write_offset%,g_reg%()
       '
-      reg%(1)=reg%(0)         ! D1: handle
-      reg%(2)=V:out_str$      ! D2: buffer
-      reg%(3)=LEN(out_str$)-1 ! D3: length
-      reg%(14)=glb_dos_lib_ptr%
-      RCALL glb_dos_lib_ptr%-48,reg%()
-      '
-      ERASE reg%()
-      '
-      ~CloseLibrary(glb_dos_lib_ptr%)
     ELSE
-      PRINT "CLOSE: no doslib found!"
+    @f_con_exit("",122) ! library not found
     ENDIF
   ENDIF
 RETURN
 '
 FUNCTION f_con_in$
-  IF glb_arc_amiga!
+  IF g_arc_amiga!
     arg_str$=""
-    DIM reg%(16)
-    glb_dos_lib_ptr%=OpenLibrary(V:glb_dos_lib_str$,36)
-    IF glb_dos_lib_ptr%<>0
-      reg%(6)=glb_dos_lib_ptr%
-      RCALL glb_dos_lib_ptr%-534,reg%()
-      arg_str$=CHAR{reg%(0)}
+    '
+    IF g_dos_base_ptr%<>0
+      '
+      g_reg%(6)=g_dos_base_ptr%    ! D6: dosbase?
+      RCALL g_dos_base_ptr%-g_dos_getargstr_offset%,g_reg%()
+      arg_str$=CHAR{g_reg%(0)}
+      '
+      IF RIGHT$(arg_str$,1)=CHR$(10)
+        arg_str$=LEFT$(arg_str$,LEN(arg_str$)-1)
+      ENDIF
+      '
+    ELSE
+    @f_con_exit("",122) ! library not found
     ENDIF
-    ERASE reg%()
-    IF RIGHT$(arg_str$,1)=CHR$(10)
-      arg_str$=LEFT$(arg_str$,LEN(arg_str$)-1)
-    ENDIF
+    '
     RETURN TRIM$(arg_str$)
   ELSE
     RETURN LEFT$(CHAR{basepage+129},BYTE{basepage+128})
