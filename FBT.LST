@@ -24,6 +24,7 @@ g_ser_chr_end|=13 ! not used
 g_ser_chr_lo|=31
 g_ser_chr_hi|=128
 g_ser_rtn_esc&=128
+g_ser_wai_nbr&=129
 g_ser_end_esc&=13
 g_ser_brg_off$="BOFF"
 g_ser_brg_on$="BON"
@@ -161,30 +162,42 @@ FUNCTION f_ser_io$(command$,speed&)
 @f_ser_purge
   PRINT #1,g_ser_esc$;g_ser_brg_off$;CHR$(g_ser_rtn_esc&);
   PRINT #1,g_ser_esc$;command$;CHR$(g_ser_rtn_esc&);
-  serchr$=""
-  serstring$=""
-  serisvalid!=FALSE
-  ser_alive_ts%=TIMER
+  ser_chr$=""
+  ser_str$=""
+  ser_flg!=FALSE
+  ser_liv_ts%=TIMER
+  ser_wai_add%=0
+  '
   DO
-    EXIT IF TIMER-ser_alive_ts%>g_ser_timeout|
+    EXIT IF TIMER-ser_liv_ts%>g_ser_timeout|+ser_wai_add%
+    '
     IF @f_ser_buf_isfilled
-      serchr$=CHR$(INP(1))
+      ser_chr$=CHR$(INP(1))
     ELSE
-      serchr$=""
+      ser_chr$=""
     ENDIF
-    IF (serchr$=CHR$(g_ser_end_esc&))
-      serisvalid!=TRUE
+    '
+    IF (ser_chr$=CHR$(g_ser_wai_nbr&))
+      ser_wai_add%=(10*200)
+    ELSE
+      ser_wai_add%=0
+    ENDIF
+    '
+    IF (ser_chr$=CHR$(g_ser_end_esc&))
+      ser_flg!=TRUE
       EXIT IF TRUE
     ENDIF
-    IF NOT (serchr$<CHR$(g_ser_chr_lo|) OR serchr$>CHR$(g_ser_chr_hi|))
-      serstring$=serstring$+serchr$
-      ser_alive_ts%=TIMER
+    '
+    IF NOT (ser_chr$<CHR$(g_ser_chr_lo|) OR ser_chr$>CHR$(g_ser_chr_hi|))
+      ser_str$=ser_str$+ser_chr$
+      ser_liv_ts%=TIMER
     ENDIF
+    '
   LOOP UNTIL MOUSEK
   PRINT #1,g_ser_esc$;g_ser_brg_on$
   CLOSE #1
-  IF serisvalid!
-    RETURN TRIM$(serstring$)
+  IF ser_flg!
+    RETURN TRIM$(ser_str$)
   ELSE
     RETURN ""
   ENDIF

@@ -2,3 +2,5 @@
 .vscode
 *-workspace
 configure.h
+.buglist
+ADEVFBT.LST
