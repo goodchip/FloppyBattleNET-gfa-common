@@ -1,7 +1,7 @@
 '
-' --- FloppyBattleCtrl ---
-' ------------------------
-' (c)goodchip2021
+' FBT /FloppyBattleCtrl
+' ---------------------
+' (c)goodchip2021-2022
 '
 '
 ' ----- DVPT FLAGS ----
@@ -9,6 +9,7 @@
 g_arc_amiga!=TRUE   ! amiga=TRUE | atari=FALSE
 g_dev_mode!=FALSE
 '
+main:
 '
 ' ----- GLOBAL VARS ----
 '
@@ -17,7 +18,7 @@ g_arg_max|=3
 g_arg_dev$=""
 g_ser_port_amiga$="COM1:"
 g_ser_port_atari$="AUX:"
-g_ser_timeout|=100
+g_ser_timeout|=150
 g_ser_esc$="AT"
 g_ser_try_num|=3 ! not used
 g_ser_chr_end|=13 ! not used
@@ -45,11 +46,13 @@ ENDIF
 '
 ' ---- MAIN ROUTINE ----
 '
+'
 ' ON BREAK GOSUB xxx
 ' ON ERROR GOSUB xxx
 '
 ' EVERY 1 GOSUB f_dev_debug
 ' EVERY STOP
+'
 '
 IF @f_sys_open_libs
   '
@@ -59,7 +62,8 @@ IF @f_sys_open_libs
     ' FOR arg_cur|=1 TO g_arg_max|
     '   g_arg$(arg_cur|)="" ! erase previous args
     ' NEXT arg_cur|
-    LINE INPUT ">FloppyBattleCtrl ",g_arg_dev$
+    PRINT ">";g_prg_name$;
+    LINE INPUT " ",g_arg_dev$
   ELSE
     con_in$=@f_con_in$
   ENDIF
@@ -99,26 +103,26 @@ IF @f_sys_open_libs
       CASE "200"
         ' PRINT MID$(ser_ret_raw$,5,1)
         IF (MID$(ser_ret_raw$,5,1)=CHR$(g_ser_rtn_esc&))
-        @f_con_exit(MID$(ser_ret_raw$,6),0)
+          @f_con_exit(MID$(ser_ret_raw$,6),0)
         ELSE
-        @f_sys_exit(0)
+          @f_sys_exit(0)
         ENDIF
       CASE "204"
-      @f_con_exit("",205)
+        @f_con_exit("",205)
       CASE "501"
-      @f_con_exit("",212)
+        @f_con_exit("",212)
       DEFAULT
-      @f_con_exit("err"+ser_rtn_cod$,209)
+        @f_con_exit("err"+ser_rtn_cod$,209)
       ENDSELECT
     ELSE
-    @f_con_exit("",218)
+      @f_con_exit("",218)
     ENDIF
   ELSE
     IF usr_method$="?"
-    @f_con_out(g_prg_name$+" v0.2 by Goodchip&Cicile (c)2021-2022.",TRUE)
-    @f_con_exit("",0)
+      @f_con_out(g_prg_name$+" v0.3 by Goodchip&Cicile (c)2021-2022.",TRUE)
+      @f_con_exit("",0)
     ELSE
-    @f_con_exit("",120) ! bad command-line arguments
+      @f_con_exit("",120) ! bad command-line arguments
     ENDIF
   ENDIF
   '
@@ -126,8 +130,8 @@ IF @f_sys_open_libs
   '
 ENDIF
 '
-' Exits program properly
-@f_sys_exit(20)
+' loop in dev mode
+GOTO main
 '
 '
 ' --- ARGUMENTS PROCESSING ----
@@ -159,7 +163,7 @@ ENDFUNC
 '
 FUNCTION f_ser_io$(command$,speed&)
   OPEN "O",#1,@f_ser_arc_port$+STR$(speed&)+",N,8,1"
-@f_ser_purge
+  @f_ser_purge
   PRINT #1,g_ser_esc$;g_ser_brg_off$;CHR$(g_ser_rtn_esc&);
   PRINT #1,g_ser_esc$;command$;CHR$(g_ser_rtn_esc&);
   ser_chr$=""
@@ -169,7 +173,7 @@ FUNCTION f_ser_io$(command$,speed&)
   ser_wai_add%=0
   '
   DO
-    EXIT IF TIMER-ser_liv_ts%>g_ser_timeout|+ser_wai_add%
+    EXIT IF (TIMER-ser_liv_ts%)>(g_ser_timeout|)
     '
     IF @f_ser_buf_isfilled
       ser_chr$=CHR$(INP(1))
@@ -178,9 +182,7 @@ FUNCTION f_ser_io$(command$,speed&)
     ENDIF
     '
     IF (ser_chr$=CHR$(g_ser_wai_nbr&))
-      ser_wai_add%=(10*200)
-    ELSE
-      ser_wai_add%=0
+      ser_liv_ts%=ser_liv_ts%+(2000*5) ! +5sec?
     ENDIF
     '
     IF (ser_chr$=CHR$(g_ser_end_esc&))
@@ -211,7 +213,7 @@ FUNCTION f_sys_open_libs
   IF g_arc_amiga!
     g_dos_base_ptr%=OpenLibrary(V:g_dos_lib_str$,g_dos_lib_ver|)
     IF g_dos_base_ptr%=0
-    @f_con_exit("",122) ! library not found
+      @f_con_exit("",122) ! library not found
       RETURN FALSE
     ENDIF
   ENDIF
@@ -225,13 +227,13 @@ PROCEDURE f_con_exit(con_out$,con_err_cod|)
   ERASE g_arg$()
   '
   IF (con_err_cod|<>0)
-    IF(con_out$="")
-    @f_con_err(g_prg_name$,con_err_cod|)
+    IF (con_out$="")
+      @f_con_err(con_out$,con_err_cod|)
     ELSE
-    @f_con_err(con_out$,con_err_cod|)
+      @f_con_err(con_out$,con_err_cod|)
     ENDIF
   ELSE
-  @f_con_out(con_out$,TRUE)
+    @f_con_out(con_out$,TRUE)
   ENDIF
   '
   f_sys_exit(con_err_cod|)
@@ -248,10 +250,12 @@ PROCEDURE f_sys_exit(con_err_cod|)
   ENDIF
   '
   IF g_dev_mode!
-    END
+    IF con_err_cod|>0
+      PRINT "Err";+con_err_cod|
+    ENDIF
+  ELSE
+    SYSTEM con_err_cod|
   ENDIF
-  '
-  SYSTEM con_err_cod|
   '
 RETURN
 '
@@ -291,7 +295,7 @@ FUNCTION f_ser_buf_isfilled
   IF g_arc_amiga!
     RETURN NOT EOF(#1) ! remplace by end of file device on Amiga
   ELSE
-    RETURN gemdos(18) ! remplace by GEMDOS function on Atari
+    RETURN gemdos(18)  ! remplace by GEMDOS function on Atari
   ENDIF
 ENDFUNC
 '
@@ -311,7 +315,7 @@ PROCEDURE f_con_err(err_str$,err_code%)
       '
       err_str$=err_str$+CHR$(0)
       '
-      g_reg%(6)=g_dos_base_ptr%    ! D6: dosbase?
+      g_reg%(6)=g_dos_base_ptr%     ! D6: dosbase?
       RCALL g_dos_base_ptr%-g_dos_output_offset%,g_reg%()
       '
       g_reg%(1)=err_code%           ! D1: code
@@ -320,7 +324,7 @@ PROCEDURE f_con_err(err_str$,err_code%)
       RCALL g_dos_base_ptr%-g_dos_printfault_offset%,g_reg%()
       '
     ELSE
-    @f_con_exit("",122) ! library not found
+      @f_con_exit("",122) ! library not found
     ENDIF
   ENDIF
 RETURN
@@ -350,7 +354,7 @@ PROCEDURE f_con_out(out_str$,out_ln!)
       RCALL g_dos_base_ptr%-g_dos_write_offset%,g_reg%()
       '
     ELSE
-    @f_con_exit("",122) ! library not found
+      @f_con_exit("",122) ! library not found
     ENDIF
   ENDIF
 RETURN
@@ -370,7 +374,7 @@ FUNCTION f_con_in$
       ENDIF
       '
     ELSE
-    @f_con_exit("",122) ! library not found
+      @f_con_exit("",122) ! library not found
     ENDIF
     '
     RETURN TRIM$(arg_str$)
